@@ -1,5 +1,5 @@
 import Vue from 'vue'
-import { withParams } from 'src'
+import { withParams, vuelidateChildren } from 'src'
 
 const isEven = withParams({ type: 'isEven' }, (v) => {
   return v % 2 === 0
@@ -610,6 +610,55 @@ describe('Validation plugin', () => {
         }
       })
       expect(vm.$v.nested.$invalid).to.be.false
+    })
+  })
+
+  describe('children validation', () => {
+    const ChildComponent = {
+      ...base,
+      template: '<div/>',
+      validations: {
+        value: { isEven }
+      }
+    }
+    const vmWithChild = (vMount = true) => {
+      return new Vue({
+        ...base,
+        components: { ChildComponent },
+        template:
+          '<div><child-component ref="child"' +
+          (vMount ? ' :vuelidate-mount-id="\'child\'"' : '') +
+          '/></div>',
+        validations: {
+          value: { isEven },
+          vuelidateChildren
+        }
+      }).$mount()
+    }
+
+    it('should not mount without vuelidateMountId prop', (done) => {
+      const vm = vmWithChild(false)
+      vm.$nextTick(() => {
+        expect(Object.values(vm.vuelidateChildren).length).to.equal(0)
+        done()
+      })
+    })
+
+    it('should mount with vuelidateMountId prop', (done) => {
+      const vm = vmWithChild()
+      vm.$nextTick(() => {
+        expect(Object.values(vm.vuelidateChildren).length).to.equal(1)
+        expect(vm.vuelidateChildren.child).to.exist
+        done()
+      })
+    })
+
+    it('should work too', (done) => {
+      const vm = vmWithChild()
+      vm.$nextTick(() => {
+        expect(vm.$refs.child.$v.$invalid).to.be.false
+        done()
+      })
     })
   })
 

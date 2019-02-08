@@ -37,6 +37,21 @@ const getPath = (ctx, obj, path, fallback) => {
   return typeof obj === 'undefined' ? fallback : obj
 }
 
+const findParent = (obj) => {
+  let parent = obj.$parent
+  while (parent && !('_vuelidate' in parent)) {
+    parent = parent.$parent
+  }
+  return parent
+}
+
+const getPropertyDescriptor = (obj, key) => {
+  return (
+    Object.getOwnPropertyDescriptor(obj, key) ||
+    getPropertyDescriptor(Object.getPrototypeOf(obj), key)
+  )
+}
+
 import { withParams, pushParams, popParams } from './params'
 
 const __isVuelidateAsyncVm = '__isVuelidateAsyncVm'
@@ -97,7 +112,7 @@ const validationGetters = {
   },
   $anyError() {
     if (this.$error) return true
-    
+
     return this.nestedKeys.some((key) => this.refProxy(key).$anyError)
   },
   $pending() {
@@ -569,13 +584,27 @@ const validateModel = (model, validations) => {
   return root
 }
 
+const vuelidateChildren = {
+  $each: {
+    valid: (value) => !value.$v.$invalid
+  }
+}
+
 const validationMixin = {
+  props: {
+    vuelidateMountId: {
+      type: String,
+      default: undefined
+    }
+  },
   data() {
     const vals = this.$options.validations
     if (vals) {
       this._vuelidate = validateModel(this, vals)
     }
-    return {}
+    return {
+      vuelidateChildren: {}
+    }
   },
   beforeCreate() {
     const options = this.$options
@@ -587,10 +616,51 @@ const validationMixin = {
       return this._vuelidate ? this._vuelidate.refs.$v.proxy : null
     }
   },
+  beforeMount() {
+    if (typeof this.vuelidateMountId === 'string') {
+      const parent = findParent(this)
+      if (parent) {
+        const obj = {
+          $v_touchAll: this.$v_touchAll,
+          $v_resetAll: this.$v_resetAll
+        }
+        Object.defineProperty(obj, '$v', {
+          get: getPropertyDescriptor(this, '$v').get.bind(this)
+        })
+        parent.$v_mount(this.vuelidateMountId, obj)
+      }
+    }
+  },
   beforeDestroy() {
+    if (typeof this.vuelidateMountId === 'string') {
+      const parent = findParent(this)
+      if (parent) {
+        parent.$v_unmount(this.vuelidateMountId)
+      }
+    }
     if (this._vuelidate) {
       this._vuelidate.$destroy()
       this._vuelidate = null
+    }
+  },
+  methods: {
+    $v_mount(id, child) {
+      this.$set(this.vuelidateChildren, id, child)
+    },
+    $v_resetAll() {
+      this.$v.$reset()
+      Object.values(this.vuelidateChildren).forEach((child) => {
+        child.$v_resetAll()
+      })
+    },
+    $v_touchAll() {
+      this.$v.$touch()
+      Object.values(this.vuelidateChildren).forEach((child) => {
+        child.$v_touchAll()
+      })
+    },
+    $v_unmount(id) {
+      this.$delete(this.vuelidateChildren, id)
     }
   }
 }
@@ -599,5 +669,5 @@ function Vuelidate(Vue) {
   Vue.mixin(validationMixin)
 }
 
-export { Vuelidate, validationMixin, withParams }
+export { Vuelidate, validationMixin, withParams, vuelidateChildren }
 export default Vuelidate
